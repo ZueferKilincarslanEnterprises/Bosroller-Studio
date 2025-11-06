@@ -1,16 +1,29 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Shoot, Project } from '../types';
-import { Calendar as CalendarIcon, X } from 'lucide-react';
+import { Shoot, Project, TeamMember } from '../types';
+import { Calendar as CalendarIcon } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import DateClickModal from '../components/calendar/DateClickModal';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+
+type FilterType = 'all' | 'my-projects' | 'by-status';
 
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [shoots, setShoots] = useState<Shoot[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<FilterType>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
 
   useEffect(() => {
     fetchData();
@@ -18,13 +31,15 @@ export default function Calendar() {
 
   const fetchData = async () => {
     try {
-      const [shootsRes, projectsRes] = await Promise.all([
+      const [shootsRes, projectsRes, teamRes] = await Promise.all([
         supabase.from('shoots').select('*'),
         supabase.from('projects').select('*'),
+        supabase.from('team_members').select('*'),
       ]);
 
       if (shootsRes.data) setShoots(shootsRes.data);
       if (projectsRes.data) setProjects(projectsRes.data);
+      if (teamRes.data) setTeamMembers(teamRes.data);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -45,9 +60,23 @@ export default function Calendar() {
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
   const emptyDays = Array.from({ length: firstDay }, (_, i) => i);
 
+  const getFilteredShoots = () => {
+    let filtered = shoots;
+
+    if (filter === 'by-status' && statusFilter !== 'all') {
+      filtered = filtered.filter((shoot) => {
+        const project = projects.find((p) => p.id === shoot.project_id);
+        return project?.status === statusFilter;
+      });
+    }
+
+    return filtered;
+  };
+
   const getShootsForDate = (day: number) => {
     const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return shoots.filter((s) => s.date === dateStr);
+    const filtered = getFilteredShoots();
+    return filtered.filter((s) => s.date === dateStr);
   };
 
   const handlePrevMonth = () => {
@@ -58,11 +87,18 @@ export default function Calendar() {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
   };
 
+  const handleDateClick = (day: number) => {
+    const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+    setSelectedDate(date);
+    setShowModal(true);
+  };
+
   if (loading) {
     return <div className="p-3 sm:p-6 text-slate-400">Loading calendar...</div>;
   }
 
   const monthName = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const statusOptions = ['Planned', 'In Production', 'Finished', 'Posted'];
 
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6">
@@ -72,6 +108,49 @@ export default function Calendar() {
           Shoot Calendar
         </h1>
         <p className="text-sm sm:text-base text-slate-400">Schedule and manage your filming dates</p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+        <div className="flex-1">
+          <label className="text-sm text-slate-400 mb-2 block">Filter</label>
+          <Select value={filter} onValueChange={(value: any) => setFilter(value)}>
+            <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="all" className="text-slate-100">
+                All Projects
+              </SelectItem>
+              <SelectItem value="my-projects" className="text-slate-100">
+                My Projects
+              </SelectItem>
+              <SelectItem value="by-status" className="text-slate-100">
+                By Status
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {filter === 'by-status' && (
+          <div className="flex-1">
+            <label className="text-sm text-slate-400 mb-2 block">Status</label>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectItem value="all" className="text-slate-100">
+                  All Statuses
+                </SelectItem>
+                {statusOptions.map((status) => (
+                  <SelectItem key={status} value={status} className="text-slate-100">
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       <div className="bg-slate-800 rounded-lg border border-slate-700 p-3 sm:p-6">
@@ -101,17 +180,13 @@ export default function Calendar() {
           ))}
           {days.map((day) => {
             const dayShoots = getShootsForDate(day);
-            const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const isToday = new Date().toDateString() === new Date(currentDate.getFullYear(), currentDate.getMonth(), day).toDateString();
 
             return (
               <button
                 key={day}
-                onClick={() => {
-                  setSelectedDate(dateStr);
-                  setShowModal(true);
-                }}
-                className={`aspect-square p-2 rounded-lg border transition-colors flex flex-col items-start justify-start gap-1 text-left group ${
+                onClick={() => handleDateClick(day)}
+                className={`aspect-square p-2 rounded-lg border transition-colors flex flex-col items-start justify-start gap-1 text-left group min-h-[60px] sm:min-h-[80px] ${
                   isToday
                     ? 'bg-blue-600 border-blue-500'
                     : dayShoots.length > 0
@@ -124,18 +199,21 @@ export default function Calendar() {
                 </span>
                 {dayShoots.length > 0 && (
                   <div className="w-full space-y-1">
-                    {dayShoots.slice(0, 2).map((shoot) => (
+                    {dayShoots.slice(0, 2).map((shoot, idx) => (
                       <div
-                        key={shoot.id}
-                        className={`text-xs px-1 py-0.5 rounded truncate ${
-                          isToday ? 'bg-blue-500' : 'bg-blue-600'
-                        } text-white`}
+                        key={idx}
+                        className={`text-xs px-1 py-0.5 rounded truncate font-medium ${
+                          isToday ? 'bg-blue-500 text-white' : 'bg-blue-600 text-white'
+                        }`}
+                        title={shoot.project_title}
                       >
-                        Shoot
+                        {shoot.project_title}
                       </div>
                     ))}
                     {dayShoots.length > 2 && (
-                      <div className="text-xs text-slate-300">+{dayShoots.length - 2} more</div>
+                      <div className="text-xs text-slate-300 px-1">
+                        +{dayShoots.length - 2} more
+                      </div>
                     )}
                   </div>
                 )}
@@ -145,44 +223,18 @@ export default function Calendar() {
         </div>
       </div>
 
-      {selectedDate && showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 rounded-lg border border-slate-700 max-w-md w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-white">
-                {new Date(selectedDate).toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </h2>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-200">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              {getShootsForDate(parseInt(selectedDate.split('-')[2])).map((shoot) => {
-                const project = projects.find((p) => p.id === shoot.project_id);
-                return (
-                  <div key={shoot.id} className="p-3 bg-slate-700 rounded-lg">
-                    <p className="font-medium text-white">{project?.title || 'Untitled'}</p>
-                    {shoot.time && <p className="text-sm text-slate-400">{shoot.time}</p>}
-                    {shoot.location && <p className="text-sm text-slate-300">{shoot.location}</p>}
-                    {shoot.notes && <p className="text-sm text-slate-400 mt-1">{shoot.notes}</p>}
-                  </div>
-                );
-              })}
-              {getShootsForDate(parseInt(selectedDate.split('-')[2])).length === 0 && (
-                <p className="text-slate-400 text-sm">No shoots scheduled</p>
-              )}
-            </div>
-
-            <Button onClick={() => setShowModal(false)} className="w-full bg-blue-600 hover:bg-blue-700">
-              Close
-            </Button>
-          </div>
-        </div>
+      {selectedDate && (
+        <DateClickModal
+          isOpen={showModal}
+          date={selectedDate}
+          onClose={() => {
+            setShowModal(false);
+            setSelectedDate(null);
+            fetchData();
+          }}
+          projects={projects}
+          teamMembers={teamMembers}
+        />
       )}
     </div>
   );

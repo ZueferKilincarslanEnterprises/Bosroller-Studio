@@ -60,18 +60,24 @@ export interface ProjectDetail extends Project {
 export interface Shoot {
   id: string;
   project_id: string;
+  project_title: string;
   date: string;
-  time?: string;
-  location?: string;
-  notes?: string;
+  time: string;
+  location: string;
+  notes: string;
   created_at: string;
+  updated_at: string;
 }
 
 export interface ShootAttendee {
   id: string;
   shoot_id: string;
   team_member_id: string;
-  added_at: string;
+  created_at: string;
+}
+
+export interface ShootWithAttendees extends Shoot {
+  attendees?: TeamMember[];
 }
 
 export interface ContentPost {
